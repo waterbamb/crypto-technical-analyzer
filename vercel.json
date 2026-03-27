@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "crypto-technical-analyzer",
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    }
+  ],
+  "env": {
+    "SKILLPAY_API_KEY": "@skillpay_api_key"
+  }
+}
