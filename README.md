@@ -121,3 +121,5 @@ curl "http://localhost:3000/api/index?symbol=BTCUSDT"
 
 MIT
 
+
+## Deployed on Vercel
