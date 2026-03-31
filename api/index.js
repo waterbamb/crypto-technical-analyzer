@@ -1,26 +1,69 @@
 const axios = require('axios');
 const { RSI, MACD, BollingerBands, SMA, EMA } = require('technicalindicators');
 
-// SkillPay SDK 模拟 - 实际使用时需要从 SkillPay 获取
-class SkillPaySDK {
-  constructor(apiKey) {
-    this.apiKey = apiKey;
-    this.baseUrl = 'https://api.skillpay.me/v1';
-  }
+// SkillPay Billing Integration
+const BILLING_URL = 'https://skillpay.me/api/v1/billing';
+const API_KEY = process.env.SKILLPAY_API_KEY;
+const SKILL_ID = 'f6d44824-4926-4087-90a4-75bc5a26d85e';
+const PRICE_PER_CALL = 0.05; // $0.05 per analysis
 
-  async charge(amount, userId) {
-    // 在实际部署时，这里会调用 SkillPay API 进行扣费
-    console.log(`Charging ${amount} USDT for user ${userId}`);
-    return { success: true, transactionId: `tx_${Date.now()}` };
-  }
-
-  validatePayment(authHeader) {
-    // 验证支付状态
-    return authHeader && authHeader.startsWith('Bearer ');
+// SkillPay Charge Function
+async function chargeUser(userId) {
+  try {
+    const { data } = await axios.post(BILLING_URL + '/charge', {
+      user_id: userId,
+      skill_id: SKILL_ID,
+      amount: PRICE_PER_CALL,
+    }, {
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (data.success) {
+      return { ok: true, balance: data.balance };
+    }
+    return { ok: false, balance: data.balance, payment_url: data.payment_url };
+  } catch (error) {
+    console.error('Billing error:', error.message);
+    return { ok: false, error: error.message };
   }
 }
 
-const skillPay = new SkillPaySDK(process.env.SKILLPAY_API_KEY);
+// Get User Balance
+async function getBalance(userId) {
+  try {
+    const { data } = await axios.get(BILLING_URL + '/balance', {
+      params: { user_id: userId },
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    return data.balance;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Generate Payment Link
+async function getPaymentLink(userId, amount = 8) {
+  try {
+    const { data } = await axios.post(BILLING_URL + '/payment-link', {
+      user_id: userId,
+      amount,
+    }, {
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    return data.payment_url;
+  } catch (error) {
+    return null;
+  }
+}
 
 // 从 Binance 获取历史价格数据
 async function getKlines(symbol, interval = '1h', limit = 100) {
@@ -178,19 +221,23 @@ module.exports = async (req, res) => {
   }
   
   try {
-    const { symbol = 'BTCUSDT', interval = '1h', userId = 'demo' } = req.query;
+    const { symbol = 'BTCUSDT', interval = '1h', userId, demo = 'false' } = req.query;
     
-    // 验证支付（生产环境需要）
-    // const authHeader = req.headers.authorization;
-    // if (!skillPay.validatePayment(authHeader)) {
-    //   return res.status(402).json({ 
-    //     error: 'Payment required',
-    //     paymentUrl: 'https://skillpay.me/checkout/...'
-    //   });
-    // }
-    
-    // 扣费（生产环境）
-    // await skillPay.charge(0.05, userId); // $0.05 per analysis
+    // 如果不是demo模式且提供了userId，则进行计费
+    if (demo !== 'true' && userId) {
+      const charge = await chargeUser(userId);
+      
+      if (!charge.ok) {
+        // 余额不足，返回充值链接
+        return res.status(402).json({
+          success: false,
+          error: 'Insufficient balance',
+          balance: charge.balance,
+          paymentUrl: charge.payment_url,
+          message: 'Please top up your balance to use this skill'
+        });
+      }
+    }
     
     // 获取价格数据
     const prices = await getKlines(symbol.toUpperCase(), interval);
